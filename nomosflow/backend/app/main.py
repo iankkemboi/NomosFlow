@@ -26,7 +26,7 @@ async def gemini_quota_handler(request: Request, exc: GeminiQuotaExceededError):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://nomosflow.vercel.app"],
+    allow_origins=["http://localhost:3000", "https://nomosflow.vercel.app", "https://ornate-truffle-98f047.netlify.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
