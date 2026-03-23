@@ -1,0 +1,43 @@
+# Environment variables — NEVER commit
+.env
+.env.local
+.env.production
+nomosflow/backend/.env
+nomosflow/frontend/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+*.egg
+.pytest_cache/
+.mypy_cache/
+
+# Node / Next.js
+nomosflow/frontend/node_modules/
+nomosflow/frontend/.next/
+nomosflow/frontend/out/
+nomosflow/frontend/tsconfig.tsbuildinfo
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Alembic
+nomosflow/backend/alembic/versions/__pycache__/
