@@ -33,7 +33,7 @@ export default function DunningPage() {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [progress, setProgress] = useState<{ processed: number; total: number; batches: number } | null>(null);
-  const [cycleResult, setCycleResult] = useState<{ processed: number; errors: unknown[]; skipped: number } | null>(null);
+  const [cycleResult, setCycleResult] = useState<{ processed: number; errors: unknown[]; skipped: number; quotaHit: boolean } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cancelRef = useRef(false);
 
@@ -63,7 +63,8 @@ export default function DunningPage() {
     let totalErrors: unknown[] = [];
     let batches = 0;
     let remaining = total;
-    let prevRemaining = total + 1; // sentinel so first iteration always continues
+    let prevRemaining = total + 1;
+    let quotaHit = false;
 
     try {
       while (remaining > 0 && remaining < prevRemaining && !cancelRef.current) {
@@ -73,12 +74,15 @@ export default function DunningPage() {
         totalErrors = [...totalErrors, ...result.errors];
         prevRemaining = remaining;
         remaining = result.queue_remaining ?? 0;
-        // Progress = how many have been cleared from the original queue
+        if (remaining >= prevRemaining) {
+          quotaHit = true;
+          break;
+        }
         const cleared = total - remaining;
         setProgress({ processed: cleared, total, batches });
       }
 
-      setCycleResult({ processed: totalProcessed, errors: totalErrors, skipped: total - remaining - totalProcessed });
+      setCycleResult({ processed: totalProcessed, errors: totalErrors, skipped: total - remaining - totalProcessed, quotaHit });
       load();
     } finally {
       setRunning(false);
@@ -124,15 +128,25 @@ export default function DunningPage() {
       )}
 
       {!running && cycleResult && (
-        <div className="mb-5 p-4 bg-accent-green-light border border-accent-green/20 rounded-card text-sm font-medium flex items-center justify-between">
-          <span className="text-accent-green">
-            ✓ Done — {cycleResult.processed} payment{cycleResult.processed !== 1 ? "s" : ""} classified in {elapsed}s
-          </span>
+        <div className={`mb-5 p-4 border rounded-card text-sm font-medium flex items-center justify-between ${
+          cycleResult.quotaHit
+            ? "bg-orange-50 border-orange-200"
+            : "bg-accent-green-light border-accent-green/20"
+        }`}>
+          {cycleResult.quotaHit ? (
+            <span className="text-orange-700">
+              ⚠ AI quota reached — {cycleResult.processed} payment{cycleResult.processed !== 1 ? "s" : ""} classified before limit hit. Remaining payments stay in queue.
+            </span>
+          ) : (
+            <span className="text-accent-green">
+              ✓ Done — {cycleResult.processed} payment{cycleResult.processed !== 1 ? "s" : ""} classified in {elapsed}s
+            </span>
+          )}
           <div className="flex items-center gap-3 text-xs">
             {cycleResult.errors.length > 0 && (
               <span className="text-orange-600">{cycleResult.errors.length} error{cycleResult.errors.length !== 1 ? "s" : ""}</span>
             )}
-            <span className="text-text-muted">Queue cleared</span>
+            {!cycleResult.quotaHit && <span className="text-text-muted">Queue cleared</span>}
           </div>
         </div>
       )}

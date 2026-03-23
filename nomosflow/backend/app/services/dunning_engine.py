@@ -189,14 +189,17 @@ def run_dunning_cycle(db: Session, partner_id: str = None, limit: int = 50) -> d
                         ai_results.append({**orig, "classification": None, "ai_error": "timeout"})
 
     # Phase 3: apply DB writes serially
-    results = {"processed": 0, "fallback_count": 0, "actions": [], "errors": []}
+    results = {"processed": 0, "skipped": 0, "fallback_count": 0, "actions": [], "errors": []}
     for result in ai_results:
         try:
             if result.get("ai_error"):
                 results["fallback_count"] += 1
             actions = _apply_writes(result, db)
-            results["processed"] += 1
-            results["actions"].extend(actions)
+            if actions:
+                results["processed"] += 1
+                results["actions"].extend(actions)
+            else:
+                results["skipped"] += 1
         except Exception as e:
             results["errors"].append({"payment_id": result.get("payment_id"), "error": str(e)})
 
