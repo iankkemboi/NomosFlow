@@ -11,7 +11,7 @@ import DeviceIcon from "@/components/ui/DeviceIcon";
 import { getDunningQueue, runDunningCycle } from "@/lib/api";
 import { formatCurrency, formatDate, deviceLabel } from "@/lib/utils";
 
-const BATCH_SIZE = 10;
+const BATCH_SIZE = 20;
 
 interface QueueItem {
   payment_id: string;
@@ -32,8 +32,10 @@ export default function DunningPage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
-  const [cycleResult, setCycleResult] = useState<{ processed: number; errors: unknown[]; queue_remaining?: number; actions?: { by?: string }[] } | null>(null);
+  const [progress, setProgress] = useState<{ processed: number; total: number; batches: number } | null>(null);
+  const [cycleResult, setCycleResult] = useState<{ processed: number; errors: unknown[]; skipped: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cancelRef = useRef(false);
 
   const load = () => {
     setLoading(true);
@@ -48,10 +50,36 @@ export default function DunningPage() {
     setRunning(true);
     setCycleResult(null);
     setElapsed(0);
+    cancelRef.current = false;
+
+    const initialQueue = await getDunningQueue() as unknown as QueueItem[];
+    const total = initialQueue.length;
+    setProgress({ processed: 0, total, batches: 0 });
+
     timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
+
+    let totalProcessed = 0;
+    let totalErrors: unknown[] = [];
+    let totalSkipped = 0;
+    let batches = 0;
+    let remaining = total;
+
     try {
-      const result = await runDunningCycle(undefined, BATCH_SIZE);
-      setCycleResult(result);
+      while (remaining > 0 && !cancelRef.current) {
+        const result = await runDunningCycle(undefined, BATCH_SIZE);
+        batches += 1;
+        totalProcessed += result.processed;
+        totalErrors = [...totalErrors, ...result.errors];
+        totalSkipped += (result.processed === 0 && (result.queue_remaining ?? 0) < remaining)
+          ? remaining - (result.queue_remaining ?? 0) - result.processed
+          : 0;
+        remaining = result.queue_remaining ?? 0;
+        setProgress({ processed: totalProcessed, total, batches });
+
+        if (result.processed === 0) break;
+      }
+
+      setCycleResult({ processed: totalProcessed, errors: totalErrors, skipped: totalSkipped });
       load();
     } finally {
       setRunning(false);
@@ -59,47 +87,56 @@ export default function DunningPage() {
     }
   };
 
+  const progressPct = progress && progress.total > 0
+    ? Math.min(100, Math.round((progress.processed / progress.total) * 100))
+    : 0;
+
   return (
     <PageShell>
       <TopBar
         title="Dunning Queue"
-        subtitle="Failed & retrying payments awaiting AI processing"
+        subtitle="Failed & retrying payments — AI classifies and schedules retries"
         action={
-          <Button onClick={handleRunCycle} loading={running} disabled={running}>
-            {running ? "Running AI Cycle…" : "Run Dunning Cycle"}
+          <Button onClick={handleRunCycle} loading={running} disabled={running || queue.length === 0}>
+            {running ? "Processing…" : "Run AI Dunning Cycle"}
           </Button>
         }
       />
 
-      {running && (
-        <div className="mb-5 p-4 bg-[#EBF2E6] border border-accent-green/20 rounded-card flex items-center gap-3">
-          <Spinner className="w-4 h-4 text-accent-green" />
-          <div className="text-sm text-accent-green font-medium">
-            Processing batch of up to {BATCH_SIZE} payments with AI classification…
-            <span className="ml-2 text-xs text-text-muted font-normal">({elapsed}s elapsed)</span>
+      {running && progress && (
+        <div className="mb-5 p-4 bg-[#EBF2E6] border border-accent-green/20 rounded-card">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 text-sm text-accent-green font-medium">
+              <Spinner className="w-4 h-4 text-accent-green" />
+              AI classifying {progress.total} payment{progress.total !== 1 ? "s" : ""}…
+            </div>
+            <span className="text-xs text-text-muted">{elapsed}s elapsed · batch {progress.batches}</span>
+          </div>
+          <div className="w-full bg-accent-green/10 rounded-full h-1.5">
+            <div
+              className="bg-accent-green h-1.5 rounded-full transition-all duration-500"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="mt-1.5 text-xs text-text-muted">
+            {progress.processed} of {progress.total} processed
           </div>
         </div>
       )}
 
-      {!running && cycleResult && (() => {
-        const aiCount = cycleResult.actions?.filter(a => a.by === "ai").length ?? 0;
-        const ruleCount = cycleResult.actions?.filter(a => a.by === "rules").length ?? 0;
-        return (
-          <div className="mb-5 p-4 bg-accent-green-light border border-accent-green/20 rounded-card text-sm text-accent-green font-medium flex items-center justify-between">
-            <span>✓ Batch complete — {cycleResult.processed} payment(s) processed in {elapsed}s.</span>
-            <div className="flex items-center gap-3 text-xs">
-              {aiCount > 0 && <span className="text-accent-green">{aiCount} AI classified</span>}
-              {ruleCount > 0 && <span className="text-text-muted">{ruleCount} rule fallback</span>}
-              {cycleResult.errors.length > 0 && (
-                <span className="text-orange-600">{cycleResult.errors.length} error(s)</span>
-              )}
-              {(cycleResult.queue_remaining ?? 0) > 0 && (
-                <span className="text-text-muted">{cycleResult.queue_remaining} remaining — run again</span>
-              )}
-            </div>
+      {!running && cycleResult && (
+        <div className="mb-5 p-4 bg-accent-green-light border border-accent-green/20 rounded-card text-sm font-medium flex items-center justify-between">
+          <span className="text-accent-green">
+            ✓ Done — {cycleResult.processed} payment{cycleResult.processed !== 1 ? "s" : ""} classified in {elapsed}s
+          </span>
+          <div className="flex items-center gap-3 text-xs">
+            {cycleResult.errors.length > 0 && (
+              <span className="text-orange-600">{cycleResult.errors.length} error{cycleResult.errors.length !== 1 ? "s" : ""}</span>
+            )}
+            <span className="text-text-muted">Queue cleared</span>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       <MacWindowCard title={`Dunning Queue (${queue.length})`}>
         {loading ? (

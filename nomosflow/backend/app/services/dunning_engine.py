@@ -84,24 +84,14 @@ def _apply_writes(result: dict, db: Session) -> list:
     customer_ctx: dict = result["customer_ctx"]
 
     classification = result.get("classification")
-    if classification:
-        failure_reason = classification.get("failure_reason", "unknown")
-        confidence = classification.get("confidence", 0.5)
-        explanation = classification.get("explanation", "")
-        classified_by = "ai"
-    else:
-        # Fallback to rules if AI timed out or failed
-        fb = classify_failure_reason_rules(
-            retry_count=payment.retry_count,
-            contract_age_days=customer_ctx["contract_age_days"],
-            salary_day=customer_ctx["salary_day"],
-            day_of_month_failed=result["payment_ctx"]["day_of_month_failed"],
-            existing_reason=payment.failure_reason,
-        )
-        failure_reason = fb["failure_reason"]
-        confidence = fb["confidence"]
-        explanation = f"Rule-based fallback (AI unavailable): {result.get('ai_error', '')}"
-        classified_by = "rules"
+    if not classification:
+        # AI unavailable — skip this payment, do not apply rule-based classification
+        return []
+
+    failure_reason = classification.get("failure_reason", "unknown")
+    confidence = classification.get("confidence", 0.5)
+    explanation = classification.get("explanation", "")
+    classified_by = "ai"
 
     payment.failure_reason = failure_reason
     payment.failure_classified_by = classified_by
