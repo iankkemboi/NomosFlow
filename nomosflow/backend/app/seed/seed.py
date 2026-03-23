@@ -17,13 +17,10 @@ Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 
-# ── Clear existing data ────────────────────────────────────────────────────────
-db.query(DunningAction).delete()
-db.query(ChurnScore).delete()
-db.query(Payment).delete()
-db.query(Customer).delete()
-db.query(Partner).delete()
-db.commit()
+if db.query(Partner).first():
+    print("✓ Database already seeded — skipping.")
+    db.close()
+    sys.exit(0)
 
 # ── Partners ───────────────────────────────────────────────────────────────────
 partners_data = [
