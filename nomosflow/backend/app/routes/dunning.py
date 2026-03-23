@@ -22,7 +22,11 @@ def trigger_dunning_cycle(
     db: Session = Depends(get_db),
 ):
     results = run_dunning_cycle(db, partner_id=str(partner_id) if partner_id else None, limit=limit)
-    remaining = db.query(Payment).filter(Payment.status.in_(["failed", "retrying"])).count()
+    remaining = (
+        db.query(Payment)
+        .filter(Payment.status == "failed", Payment.next_retry_date.is_(None))
+        .count()
+    )
     response = {"status": "completed", "queue_remaining": remaining, **results}
     if results.get("fallback_count", 0) > 0:
         response["quota"] = quota_status()
