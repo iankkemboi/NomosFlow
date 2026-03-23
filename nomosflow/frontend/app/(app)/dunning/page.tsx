@@ -54,32 +54,31 @@ export default function DunningPage() {
 
     const initialQueue = await getDunningQueue() as unknown as QueueItem[];
     const total = initialQueue.length;
-    setProgress({ processed: 0, total, batches: 0 });
+    if (total === 0) { setRunning(false); return; }
 
+    setProgress({ processed: 0, total, batches: 0 });
     timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
 
     let totalProcessed = 0;
     let totalErrors: unknown[] = [];
-    let totalSkipped = 0;
     let batches = 0;
     let remaining = total;
+    let prevRemaining = total + 1; // sentinel so first iteration always continues
 
     try {
-      while (remaining > 0 && !cancelRef.current) {
+      while (remaining > 0 && remaining < prevRemaining && !cancelRef.current) {
         const result = await runDunningCycle(undefined, BATCH_SIZE);
         batches += 1;
         totalProcessed += result.processed;
         totalErrors = [...totalErrors, ...result.errors];
-        totalSkipped += (result.processed === 0 && (result.queue_remaining ?? 0) < remaining)
-          ? remaining - (result.queue_remaining ?? 0) - result.processed
-          : 0;
+        prevRemaining = remaining;
         remaining = result.queue_remaining ?? 0;
-        setProgress({ processed: totalProcessed, total, batches });
-
-        if (result.processed === 0) break;
+        // Progress = how many have been cleared from the original queue
+        const cleared = total - remaining;
+        setProgress({ processed: cleared, total, batches });
       }
 
-      setCycleResult({ processed: totalProcessed, errors: totalErrors, skipped: totalSkipped });
+      setCycleResult({ processed: totalProcessed, errors: totalErrors, skipped: total - remaining - totalProcessed });
       load();
     } finally {
       setRunning(false);
